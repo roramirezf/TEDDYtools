@@ -1,0 +1,327 @@
+---
+title: "TEDDYtools Manual"
+author: "Ricardo Ramirez"
+date: "5/3/2017"
+output: html_document
+---
+
+##### Description
+
+*TEDDYtools* allow you to manipulate raw and processed metabolic and gene expression data. The objective is to homogenize the analysis that is performed by different persons.
+
+TEDDYtoolsv2 is the most stable version. I will try to keep the code updated in my personal GitHub. There you can request changes and report bugs. (I am not making the data public)
+
+TEDDYtools can be divided in 3 different folders and 1 make file
+
+* **TargetFileCreation** : In this folder, raw data from GeneExpression, Metabolomics and FunctionalAnnotations are stored. Each folder contains a *TargetCreation* script that creates the Robjects stored in *GlobalData* folder
+* **GlobalData**: R objects that summarize the annotation efforts in **TargetFileCreation**, these objects are the initial point in all of the analysis performed by anyone (In theory)
+* **Suite**: Functions of TEDDYtools, divided by use
+* **loadTEDDYtools.R**: make file with all the requirements and objects needed to run TEDDYtools. This script must be called to load TEDDYtools
+
+##### Description of the data provided
+
+##### * Inside TargetFileCreation:
+
+**Gene Expression**
+
+Raw gene expression matrix: Provided by Srikar
+
+Raw gene expression matrix, inverse normalization: Provided by Leandro
+
+Gene Expression Matrix Annotations: Set of files downloaded from TEDDY
+
+**Metabolism**
+
+Raw Positive Lipidomics: Provided by Leandro
+
+Raw Negative Lipidomics: Provided by Leandro
+
+Raw GCTOF: Provided by Leandro
+
+Metabolomic Matrix Annotations: Generated in TargetFileCreation
+
+**Annotations**
+
+MSigDB raw files (cpg,biocarta,kegg,reactome,GOs,canonical,immune)
+
+##### * As R objects in GlobalData:
+
+**Gene Expression**
+
+Raw gene expression matrix: Provided by Srikar (RAW) - **RAW_EXPMAT**
+
+Raw gene expression matrix, inverse normalization: Provided by Leandro (NEEDS log2 transformation) - **RAW_EXPMATv2**
+
+Gene Expression Matrix Annotations: Generated in TargetFileCreation, time is interpreted as positive (12 months before seroconversion = 12) **GEXtargets**
+
+**Metabolism**
+
+Raw Positive Lipidomics (log2 transformed, 0transformed to 0.01): Generated in TargetFileCreation - **posLipRAW_counts**
+
+Raw Negative Lipidomics (log2 transformed, 0 transformed to 0.01): Generated in TargetFileCreation - **negLipRAW_counts**
+
+Raw GCTOF (log2 transformed, 0 transformed to 0.01): Generated in TargetFileCreation - **GCTOFRAW_counts**
+
+Metabolomic Matrix Annotations: Generated in TargetFileCreation, time is interpreted as positive (12 months before seroconversion = 12) - **MetabolicTargets**
+
+**Annotations**
+
+MSigDB annotations as a list (cpg,biocarta,kegg,reactome,GOs,canonical,immune) - **TEDDY_geneSets**
+
+#### Installation
+
+In *loadTEDDYtools.R* change the location of TEDDYtoolsV2 folder to your own pathway
+
+```{r }
+# The location of TEDDYtoolsV2
+setwd("/Users/ricardoramirez/Dropbox (UFL)/myTEDDY_V2/TEDDYtoolsV2/")
+```
+
+After doing that, as a header in every analysis you perform, do the following to load TEDDYtools...
+
+```{r, echo=TRUE, eval=FALSE}
+# Home directory where all your results are going to be contained, TEDDYtools folder must be contained in it
+homedir = "/Users/ricardoramirez/Desktop/TTools_demo/"
+# Location of TEDDYtools make file
+TEDDYtools = "/Users/ricardoramirez/Desktop/TTools_demo/loadTEDDYtools.R"
+#Project location
+source(TEDDYtools)
+setwd(homedir)
+```
+
+```{r include=FALSE}
+# Home directory where all your results are going to be contained, TEDDYtools folder must be contained in it
+homedir = "/Users/ricardoramirez/Desktop/TTools_demo/"
+# Location of TEDDYtools make file
+TEDDYtools = "/Users/ricardoramirez/Desktop/TTools_demo/loadTEDDYtools.R"
+#Project location
+source(TEDDYtools)
+setwd(homedir)
+```
+
+### Working Examples using different functionalities of TEDDY tools
+
+As a first example... Let's work with Gene Expression.
+
+The data in TEDDYtools is structured in 2 objects, Annotations (Targets) and Counts.
+
+In our usual analysis we are interested in complete case-control pairs in at least one of the 5 time points we defined. To achieve this, you can use the following
+
+```{r }
+# Get the annotation of IA samples that have information in at least 1 of the 5 time-points asked
+# Depending on your needs complete_case can be: strict(information at all time points), null(get all the data, regardless completeness), flexible(information in at least 1 time point)
+LM_globalTargets = loadTargets_v2(SELdisease = "IA",time_point = c(12,9,6,3,0),
+                                  complete_case = "flexible",targets = GEXtargets)
+print(dim(LM_globalTargets))
+print(head(LM_globalTargets[,1:5]))
+```
+
+Now, we can use the samples's information to load,normalize and annotate the Gene Expression Matrix (Counts)
+
+```{r }
+RAW_EXPMAT = log2(RAW_EXPMATv2) #For the inversenorm matrix, log2 transformation is required
+#ciNORM = Refers to X within normalization
+#gNORM = Refers to outcome normalization (Keep it FALSE, not useful)
+#annotation_column = "SYMBOL" or "ENTREZID"
+LM_globalEXPMAT = getExprmat_v3(RAWEXPRMAT = RAW_EXPMAT,STARGETS = LM_globalTargets,
+                                ciNORM = TRUE, gNORM = FALSE,
+                                time = unique(LM_globalTargets$time),annotation_column = "SYMBOL")
+print(LM_globalEXPMAT[1:5,1:5])
+```
+
+For Metabolomics the idea is similar, but there's no way to obtain an annotated version of the matrix, so we need to do all the steps by hand
+
+```{r }
+# This gets the complete case-control pairs for the 5 time points selected
+Filt_Targets = loadTargets_v2(SELdisease = "IA",time_point = c(12,9,6,3,0),complete_case = "flexible",targets = MetabolicTargets)
+
+#Normalize Metabolomics Data
+normMat = normGEX_v2(expMAT = negLipRAW_counts,targetTable = Filt_Targets,time = unique(Filt_Targets$time))
+
+#Re order the data in order to have the sample_mask_ids in the same order of the Target File
+normMat = normMat[,as.character(Filt_Targets$sample_mask_id)]
+```
+
+Also, as a reminder you can add more information to the annotations if you wish! In our case, I do it for the FAAB data
+
+```{r }
+FAAb = na.omit(read.delim(file = "/Users/ricardoramirez/Desktop/TTools_demo/SupData/wholedescriptivevars.txt", sep="\t",header = TRUE,stringsAsFactors = F)[,c("FirstAAbCC","sample_mask_id")])
+colnames(FAAb) = c("FirstAAb","sample_mask_id")
+LM_globalTargets = addFeatures(newDFdata = FAAb, TARGETS = LM_globalTargets, selCol = "sample_mask_id")
+print(dim(LM_globalTargets))
+print(colnames(LM_globalTargets))
+```
+
+There are other options of data manipulation
+
+First let's recover the information of all the cases
+
+```{r }
+Case_Annotations = filter(LM_globalTargets, outcome==1)
+Case_Counts = LM_globalEXPMAT[,as.character(Case_Annotations$sample_mask_id)]
+```
+
+Do you want to know the mean/median expression of all the genes at a given time point?
+
+```{r }
+a = getGroupMean(groupcolumn = "time", stargets = Case_Annotations, sexprmat = Case_Counts)
+print(head(a))
+
+b = getGroupMedian(groupcolumn = "time", stargets = Case_Annotations, sexprmat = Case_Counts)
+print(head(b))
+```
+
+Do you want to know the changes in mean expression in the 4 intervals defined in our analysis?
+
+```{r }
+a = get_ChangeMatrix(CountMat = Case_Counts,AnnotationMat = Case_Annotations)
+print(head(a))
+```
+
+Do you want to create a patient/genes/time matrix?
+
+```{r }
+#melType: case, control or both
+a = meltCountMatrix(targetDF = Case_Annotations,
+                    countMat = Case_Counts,
+                    selFeat = rownames(Case_Counts)[1:5],meltType = "case")
+print(a[1:4,c(1,2,6,7)])
+```
+
+### Visual Manager
+
+Different plots can be done to a Target-Count object (GENEX,Metabolomics,Dietary Biomarkers,...)
+
+Remeber to follow t
+
+Let's evaluate the time-specific difference in expression of a given gene...
+
+Based on outcome
+
+```{r,fig.width=7, fig.height=14}
+genedynamics(EXPRMAT = LM_globalEXPMAT,GENES = "MTOR",
+             STARGETS = LM_globalTargets,TRSH = 0.05,
+             SIGNIFICANCE = FALSE ,CASE_CONTROL = FALSE)
+```
+
+```{r}
+#Annotations and counts must be in the same order
+plotES(ES_list = LM_globalEXPMAT["MTOR",],sigTargets = LM_globalTargets,TRSH=0.05,main_title = "MTOR")
+```
+
+*plotgenetrajectory*, *plotgenetrajectorybp* can plot similar results, take a look at the documentation inside the functions
+
+Heatmaps can also be created using TEDDYtools
+```{r}
+#Annotations and counts must be in the same order
+plotHMps(genes = rownames(LM_globalEXPMAT)[1:50],expmat = LM_globalEXPMAT,targetdf = LM_globalTargets,time.point = c(12))
+```
+
+MDS plots are also implemented
+
+```{r}
+PatientMatrix = meltCountMatrix(targetDF = Case_Annotations,
+                    countMat = Case_Counts,
+                    selFeat = rownames(Case_Counts)[1:150],meltType = "case")
+
+plot_MDS_Tv_v2(meltMat = PatientMatrix,targetDF = Case_Annotations,main = "Age group Separation",GroupColumn = "agegroup")
+
+```
+
+### Differential Expression Analysis
+
+There are two types of analysis: time-specific and time course. Time-specific DEAs analyze every time point in an independent manner, while time course analysis try to analyze dynamics as a whole (models the changes).
+
+**Time Specific**
+
+The only thing you need to perform a time specific analysis is a TargetTable and a CountMatrix, *runTEDDYlimma_basic* and *fitGLM_v2*, use the outcome column in your TargetTable to perform the analysis (you can only have 1's or 0's, where 1 will represent the reference). Given that it ignores the time, it is NECESSARY to filter your counts to have only the information of 1 timepoint.
+
+```{r }
+#Using Limma
+Time0_samples = filter(LM_globalTargets,time==0)
+Time0_counts = LM_globalEXPMAT[,as.character(Time0_samples$sample_mask_id)]
+Time0_DEA = runTEDDYlimma_basic(stargets = Time0_samples,sEXPMAT = Time0_counts)
+print(head(Time0_DEA))
+#Filter results
+TSign = filterLimmaGLSv3(GLS = Time0_DEA,pTRSH = 0.05,FC_col = "logFC")
+print(summary(TSign))
+
+#Using Linear Models from R
+Time0_DEA = fitGLM_v2(cMAT = Time0_counts[1:100,],cTargets = Time0_samples)
+print(head(Time0_DEA))
+#Filter results
+TSign = filterGLM(GLMres = Time0_DEA,THRS = .5)
+print(summary(TSign))
+```
+
+I have coded a function that allows you to create combinations
+
+```{r eval=F}
+AgeFeatures = list("agegroup"=unique(LM_globalTargets$agegroup))
+
+Age_signatures_limma_results = getSignatures(cMAT = LM_globalEXPMAT,targetMAT = LM_globalTargets,
+                                             Features = AgeFeatures,time = c(0,3,6,9,12),
+                                             g.pval = 0.05,s.pval=0.05,model_type = "limma")
+
+print(summary(Age_signatures_limma_results))
+```
+
+**Time Course Analysis**
+
+This is only implemented in limma, Age0=T if you don't have information at time 12 (agegroup 1)
+
+```{r }
+TC_results = runTimeCourse_test(countMAT = LM_globalEXPMAT,annotationDF = LM_globalTargets,compCOL = "outcome",Age0 = F)
+print(head(TC_results$global))
+```
+
+### Enrichment Analysis
+
+**Hypergeometric tests**, **GSEA** and **PIANO** were implemented to perform different enrichment analysis
+
+GSEA holds for Gene Set Enrichment Analysis, which is based in a Kolmogorov-Smirnoff statistic coupled to a running sum
+
+Scripts were recovered from GSEA's web page and adapted to perform basic analysis
+
+In the most basic analysis it requires an expression matrix and a collection of gene sets
+
+```{r}
+ExCounts = LM_globalEXPMAT[,1:5]
+print(ExCounts[1:5,1:5])
+ExSets = TEDDY_geneSets$MSIGDB_HMARKS[c(1:5)]
+ExFMat = getFunctionMatrix_v2(eMat = ExCounts,eTargets = c(),Signature_Dict = ExSets,weighted = FALSE)
+print(ExFMat$ES[1:5,1:5])
+```
+
+If *weighted*==TRUE, then you'll need to provide an annotation table with an "outcome" column, which is going to be used to assign a weight to each gene based on a basic T-test
+
+For the **Hypergeometric Test** I'll use the selection from the n-PLS-DA as an example
+
+```{r}
+PLS_genes = read.delim("/Users/ricardoramirez/Desktop/TTools_demo/SupData/PLS_results/ClusterList/PLS_selection.txt",
+                       stringsAsFactors = F,header = F)[,1]
+
+HyperRes = GSE_analysis(geneList = PLS_genes,Annotation_DB = TEDDY_geneSets$REACTOME)
+
+print(HyperRes[6:7,])
+
+```
+
+**PIANO** requires gene level statistics (results from limma) and a specific gene set collection.
+
+```{r,eval=FALSE}
+
+runMultiGSA(GSC = melt(TEDDY_geneSets$MSIGDB_HMARKS),GLS = LimmaResults)
+
+```
+
+### Perspectives
+
+To see how these tools are used as a whole, you can take a look at the complete analysis of Gene Expression Data
+
+One of my objectives was to make TEDDYtools a collaborative space in which all of us could share our code and avoid repeating functions that were implemented by someone else.
+
+Feel free to report any bug and add more functionalities.
+
+
+
